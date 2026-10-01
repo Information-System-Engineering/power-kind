@@ -1,0 +1,71 @@
+# power-kind-fake-power — SYNTHETIC power series.
+#
+# NOT A MEASUREMENT. Every number is fabricated and every series carries
+# synthetic="true". The script is mounted from a ConfigMap built with
+# --from-file, so there is exactly one copy of it and `--selftest` exercises
+# the same bytes the cluster runs.
+#
+# One replica on the control node: it derives every node's series from the
+# cluster's own CPU metrics, so there is nothing per-node to run.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: fake-power
+  namespace: monitoring
+  labels: {app: fake-power}
+spec:
+  replicas: 1
+  selector: {matchLabels: {app: fake-power}}
+  template:
+    metadata:
+      labels: {app: fake-power}
+    spec:
+      # Kubernetes injects <SERVICE_NAME>_PORT for every Service in the
+      # namespace. This Service is `fake-power`, so that is FAKE_POWER_PORT —
+      # exactly the knob this exporter reads, arriving as "tcp://10.96.x.x:9260"
+      # and crashing int(). The pod reaches Prometheus by PROMETHEUS_URL and
+      # needs none of those variables, so turn the whole mechanism off rather
+      # than renaming around one collision.
+      enableServiceLinks: false
+      nodeSelector: {role: system}
+      tolerations:
+        - {key: node-role.kubernetes.io/control-plane, operator: Exists, effect: NoSchedule}
+      containers:
+        - name: exporter
+          image: python:3.13-alpine
+          command: ["python3", "/app/fake_power_exporter.py"]
+          env:
+            - name: PROMETHEUS_URL
+              value: http://kube-prometheus-stack-prometheus.monitoring:9090
+          ports: [{name: metrics, containerPort: 9260}]
+          readinessProbe:
+            httpGet: {path: /metrics, port: metrics}
+            periodSeconds: 10
+          resources:
+            requests: {cpu: 25m, memory: 64Mi}
+            limits: {cpu: 200m, memory: 128Mi}
+          volumeMounts: [{name: app, mountPath: /app}]
+      volumes:
+        - {name: app, configMap: {name: fake-power}}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: fake-power
+  namespace: monitoring
+  labels: {app: fake-power}
+spec:
+  selector: {app: fake-power}
+  ports: [{name: metrics, port: 9260, targetPort: metrics}]
+---
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: fake-power
+  namespace: monitoring
+  labels: {release: kube-prometheus-stack}
+spec:
+  selector: {matchLabels: {app: fake-power}}
+  endpoints:
+    - port: metrics
+      interval: 10s

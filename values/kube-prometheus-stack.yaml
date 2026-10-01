@@ -1,0 +1,79 @@
+alertmanager:
+  enabled: false
+
+grafana:
+  enabled: false
+
+kube-state-metrics:
+  nodeSelector:
+    role: system
+
+prometheusOperator:
+  nodeSelector:
+    role: system
+  admissionWebhooks:
+    patch:
+      nodeSelector:
+        role: system
+
+nodeExporter:
+  enabled: true
+
+prometheus-node-exporter:
+  namespaceOverride: ""
+  podLabels:
+    jobLabel: node-exporter
+  podAnnotations:
+    # --collector.processes reads /proc/<pid>/, which needs
+    # ptrace(PTRACE_MODE_READ) — blocked by the default cri-containerd AppArmor
+    # profile. Unconfined is standard practice for node-exporter DaemonSets.
+    container.apparmor.security.beta.kubernetes.io/node-exporter: unconfined
+  nodeSelector:
+    role: sut
+  releaseLabel: true
+  extraArgs:
+    - --collector.filesystem.mount-points-exclude=^/(dev|proc|sys|run/containerd/.+|var/lib/docker/.+|var/lib/kubelet/.+)($|/)
+    - --collector.filesystem.fs-types-exclude=^(autofs|binfmt_misc|bpf|cgroup2?|configfs|debugfs|devpts|devtmpfs|fusectl|hugetlbfs|iso9660|mqueue|nsfs|overlay|proc|procfs|pstore|rpc_pipefs|securityfs|selinuxfs|squashfs|sysfs|tracefs|erofs)$
+    # node_procs_running, node_procs_blocked — /proc/stat, the counters a
+    # power model wants.
+    - --collector.processes
+  prometheus:
+    monitor:
+      attachMetadata:
+        node: true
+      # LOAD-BEARING. Consumers query {node="..."}. Without this the series
+      # exist but carry no node label and every such query matches nothing.
+      relabelings:
+        - sourceLabels: [__meta_kubernetes_pod_node_name]
+          targetLabel: node
+          action: replace
+
+prometheus:
+  service:
+    type: NodePort
+    nodePort: 30090
+  prometheusSpec:
+    replicas: 1
+    nodeSelector:
+      role: system
+    scrapeInterval: 10s
+    scrapeTimeout: 5s
+    evaluationInterval: 1s
+    retention: 30d
+    # LOAD-BEARING. Snapshot tooling needs delete_series, clean_tombstones and
+    # the snapshot endpoint; the admin API gates all three.
+    enableAdminAPI: true
+    serviceMonitorSelectorNilUsesHelmValues: false
+    podMonitorSelectorNilUsesHelmValues: false
+    serviceMonitorSelector: {}
+    podMonitorSelector: {}
+    serviceMonitorNamespaceSelector: {}
+    podMonitorNamespaceSelector: {}
+    scrapeConfigSelector:
+      matchLabels:
+        release: kube-prometheus-stack
+    scrapeConfigNamespaceSelector: {}
+  monitor:
+    enabled: true
+    attachMetadata:
+      node: true

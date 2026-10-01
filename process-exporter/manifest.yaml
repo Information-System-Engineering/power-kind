@@ -1,0 +1,60 @@
+# process-exporter on kind. kubelet, containerd and every container process run
+# inside the kind node container, so a hostPID pod reads their real /proc.
+#
+# The ConfigMap this mounts is NOT defined here. bootstrap.sh builds it from
+# process-exporter/config.yml with --from-file immediately before applying this
+# file. Applying this alone leaves the volume pointing at a ConfigMap that does
+# not exist.
+apiVersion: apps/v1
+kind: DaemonSet
+metadata:
+  name: process-exporter
+  namespace: monitoring
+  labels: {app: process-exporter}
+spec:
+  selector: {matchLabels: {app: process-exporter}}
+  template:
+    metadata: {labels: {app: process-exporter}}
+    spec:
+      hostPID: true
+      # Kubernetes injects <SERVICE_NAME>_PORT for every Service in the
+      # namespace and this pod needs none of them.
+      enableServiceLinks: false
+      tolerations:
+        - {key: node-role.kubernetes.io/control-plane, operator: Exists, effect: NoSchedule}
+      containers:
+        - name: process-exporter
+          image: ncabatoff/process-exporter:0.8.7
+          args: ["--procfs=/host/proc", "--config.path=/cfg/config.yml", "--web.listen-address=:9256"]
+          ports: [{name: metrics, containerPort: 9256}]
+          resources:
+            requests: {cpu: 25m, memory: 64Mi}
+            limits: {cpu: 200m, memory: 128Mi}
+          volumeMounts:
+            - {name: proc, mountPath: /host/proc, readOnly: true}
+            - {name: cfg, mountPath: /cfg}
+      volumes:
+        - {name: proc, hostPath: {path: /proc}}
+        - {name: cfg, configMap: {name: process-exporter}}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: process-exporter
+  namespace: monitoring
+  labels: {app: process-exporter}
+spec:
+  selector: {app: process-exporter}
+  ports: [{name: metrics, port: 9256, targetPort: metrics}]
+---
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: process-exporter
+  namespace: monitoring
+  labels: {release: kube-prometheus-stack}
+spec:
+  selector: {matchLabels: {app: process-exporter}}
+  endpoints:
+    - port: metrics
+      interval: 10s   # matches the stack's scrape interval

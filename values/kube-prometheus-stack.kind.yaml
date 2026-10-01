@@ -1,0 +1,12 @@
+# kind override: kind's provisioner is `standard`, not the `local-path` a
+# bare-metal cluster uses, and a session-sized volume is enough.
+prometheus:
+  prometheusSpec:
+    storageSpec:
+      volumeClaimTemplate:
+        spec:
+          storageClassName: standard
+          accessModes: ["ReadWriteOnce"]
+          resources:
+            requests:
+              storage: 10Gi

@@ -1,0 +1,6 @@
+# Group every process by its command name. Nothing here is workload-specific:
+# whatever runs inside the kind node container shows up under its own {{.Comm}}.
+process_names:
+  - name: "{{.Comm}}"
+    cmdline:
+      - '.+'

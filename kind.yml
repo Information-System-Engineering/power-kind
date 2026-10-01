@@ -1,0 +1,25 @@
+# A control-plane labelled role=system and one worker labelled role=sut.
+# Manifests schedule by these labels, not by node name.
+kind: Cluster
+apiVersion: kind.x-k8s.io/v1alpha4
+nodes:
+  - role: control-plane
+    labels:
+      role: system
+    extraPortMappings:
+      - containerPort: 30090
+        hostPort: 30090
+        protocol: TCP
+    kubeadmConfigPatches:
+      - |
+        kind: InitConfiguration
+        nodeRegistration:
+          kubeletExtraArgs:
+            node-labels: "role=system"
+          taints: []
+  - role: worker
+    labels:
+      role: sut
+
+networking:
+  apiServerAddress: 127.0.0.1
